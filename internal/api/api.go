@@ -307,7 +307,8 @@ func NewAPIWithVersion(globalConfig *conf.GlobalConfiguration, db *storage.Conne
 			r.Use(api.requirePasskeyEnabled)
 
 			r.Route("/authentication", func(r *router) {
-				r.Post("/options", api.PasskeyAuthenticationOptions)
+				r.With(api.limitHandler(api.limiterOpts.PasskeyAuthentication)).
+					Post("/options", api.PasskeyAuthenticationOptions)
 				r.Post("/verify", api.PasskeyAuthenticationVerify)
 			})
 
@@ -355,6 +356,13 @@ func NewAPIWithVersion(globalConfig *conf.GlobalConfiguration, db *storage.Conne
 							r.Use(api.loadFactor)
 							r.Delete("/", api.adminUserDeleteFactor)
 							r.Put("/", api.adminUserUpdateFactor)
+						})
+					})
+
+					r.Route("/passkeys", func(r *router) {
+						r.Get("/", api.AdminPasskeyList)
+						r.Route("/{passkey_id}", func(r *router) {
+							r.Delete("/", api.AdminPasskeyDelete)
 						})
 					})
 

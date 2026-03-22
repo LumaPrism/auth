@@ -87,7 +87,7 @@ type AnonymousProviderConfiguration struct {
 
 // CustomOAuthConfiguration holds configuration for custom OAuth and OIDC providers
 type CustomOAuthConfiguration struct {
-	Enabled      bool `json:"enabled" split_words:"true" default:"false"`
+	Enabled      bool `json:"enabled" split_words:"true" default:"true"`
 	MaxProviders int  `json:"max_providers" split_words:"true" default:"0"`
 }
 
@@ -387,6 +387,7 @@ type GlobalConfiguration struct {
 	RateLimitAnonymousUsers             float64 `split_words:"true" default:"30"`
 	RateLimitOtp                        float64 `split_words:"true" default:"30"`
 	RateLimitWeb3                       float64 `split_words:"true" default:"30"`
+	RateLimitPasskey                    float64 `split_words:"true" default:"30"`
 	RateLimitOAuthDynamicClientRegister float64 `split_words:"true" default:"10"`
 
 	SiteURL         string   `json:"site_url" split_words:"true" required:"true"`
