@@ -35,12 +35,15 @@ externalDocs:
   description: Learn more about Supabase Auth
   url: https://supabase.com/docs/guides/auth/overview
 servers:
-  - url: "https://{project}.supabase.co/auth/v1"
+  - url: "http://localhost:9999"
+    description: Local development
+  - url: "https://{host}"
+    description: Production
     variables:
-      project:
+      host:
         description: >
-          Your Supabase project ID.
-        default: abcdefghijklmnopqrst
+          Your Auth API host.
+        default: auth.example.com
 tags:
   - name: auth
     description: APIs for authentication and authorization.
