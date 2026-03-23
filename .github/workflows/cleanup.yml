@@ -1,0 +1,23 @@
+name: "cleanup::packages"
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    name: "cleanup::ghcr"
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: snok/container-retention-policy@v3.0.0
+        with:
+          account: LumaPrism
+          token: ${{ secrets.GITHUB_TOKEN }}
+          image-names: auth
+          cut-off: 30 days ago UTC
+          keep-n-most-recent: 30
+          skip-tags: latest
+          account-type: org
