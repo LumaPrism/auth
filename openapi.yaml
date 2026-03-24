@@ -43,7 +43,7 @@ servers:
       host:
         description: >
           Your Auth API host.
-        default: auth.example.com
+        default: auth.lumaprism.dev
 tags:
   - name: auth
     description: APIs for authentication and authorization.
