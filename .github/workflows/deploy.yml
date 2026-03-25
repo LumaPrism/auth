@@ -48,12 +48,13 @@ jobs:
           COMPOSE=$(curl -fsSL "${{ secrets.COOLIFY_URL }}/api/v1/services/${{ secrets.COOLIFY_UUID_AUTH }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
             | jq -r '.docker_compose_raw')
-          UPDATED=$(echo "$COMPOSE" | sed 's|ghcr.io/lumaprism/auth:[^ ]*|ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}|g')
+          UPDATED=$(echo "$COMPOSE" | sed "s|ghcr.io/lumaprism/auth:[^'\"[:space:]]*|ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}|g")
           ENCODED=$(echo -n "$UPDATED" | base64 -w 0)
+          PAYLOAD=$(jq -n --arg c "$ENCODED" '{"docker_compose_raw": $c}')
           curl -fsSL -X PATCH "${{ secrets.COOLIFY_URL }}/api/v1/services/${{ secrets.COOLIFY_UUID_AUTH }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"docker_compose_raw\": \"$ENCODED\"}"
+            -d "$PAYLOAD"
 
       - name: "deploy::auth"
         run: |
