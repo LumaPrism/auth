@@ -38,13 +38,24 @@ jobs:
           cache-to: type=gha,mode=max,scope=auth
 
   deploy:
-    name: "deploy::coolify"
+    name: "deploy::coolify::development"
     needs: build
     runs-on: ubuntu-latest
     environment: development
     steps:
+      - name: "deploy::update-image"
+        run: |
+          COMPOSE=$(curl -fsSL "${{ secrets.COOLIFY_URL }}/api/v1/services/${{ secrets.COOLIFY_UUID_AUTH }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
+            | jq -r '.docker_compose_raw')
+          UPDATED=$(echo "$COMPOSE" | sed 's|ghcr.io/lumaprism/auth:[^ ]*|ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}|g')
+          ENCODED=$(echo -n "$UPDATED" | base64 -w 0)
+          curl -fsSL -X PATCH "${{ secrets.COOLIFY_URL }}/api/v1/services/${{ secrets.COOLIFY_UUID_AUTH }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"docker_compose_raw\": \"$ENCODED\"}"
+
       - name: "deploy::auth"
         run: |
-          curl -fsSL -X GET \
-            "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_UUID_AUTH }}&tag=${{ needs.build.outputs.image_tag }}" \
+          curl -fsSL "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_UUID_AUTH }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
