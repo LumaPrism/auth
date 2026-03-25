@@ -34,28 +34,17 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.image_tag }}
-            ${{ env.IMAGE }}:latest
           cache-from: type=gha,scope=auth
           cache-to: type=gha,mode=max,scope=auth
 
   deploy:
-    name: "deploy::development"
+    name: "deploy::coolify"
     needs: build
     runs-on: ubuntu-latest
     environment: development
     steps:
-      - name: "deploy::ghcr-login"
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u LumaPrism --password-stdin
-
-      - name: "deploy::run"
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: /opt/prism/deploy.sh auth "${{ needs.build.outputs.image_tag }}"
+      - name: "deploy::auth"
+        run: |
+          curl -fsSL -X GET \
+            "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_UUID_AUTH }}&tag=${{ needs.build.outputs.image_tag }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
