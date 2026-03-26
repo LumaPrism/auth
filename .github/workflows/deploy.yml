@@ -38,28 +38,55 @@ jobs:
           cache-to: type=gha,mode=max,scope=auth
 
   deploy:
-    name: "deploy::coolify::development"
+    name: "deploy::k3s::development"
     needs: build
     runs-on: ubuntu-latest
     environment: development
     steps:
-      - name: "deploy::update-image"
-        run: |
-          COMPOSE=$(curl -fsSL "${{ secrets.COOLIFY_URL }}/api/v1/services/${{ secrets.COOLIFY_UUID_AUTH }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
-            | jq -r '.docker_compose_raw')
-          UPDATED=$(echo "$COMPOSE" | sed "s|ghcr.io/lumaprism/auth:[^'\"[:space:]]*|ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}|g")
-          ENCODED=$(echo -n "$UPDATED" | base64 -w 0)
-          PAYLOAD=$(jq -n --arg c "$ENCODED" '{"docker_compose_raw": $c}')
-          curl -fsSL -X PATCH "${{ secrets.COOLIFY_URL }}/api/v1/services/${{ secrets.COOLIFY_UUID_AUTH }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+      - name: "deploy::migrate"
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            TAG="${{ needs.build.outputs.image_tag }}"
+            k3s kubectl delete job -n prism -l app=auth-migrate --ignore-not-found
+            cat <<JOBEOF | k3s kubectl apply -f -
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: auth-migrate-${TAG}
+              namespace: prism
+              labels:
+                app: auth-migrate
+            spec:
+              backoffLimit: 3
+              ttlSecondsAfterFinished: 300
+              template:
+                spec:
+                  imagePullSecrets:
+                    - name: ghcr-secret
+                  containers:
+                    - name: auth-migrate
+                      image: ghcr.io/lumaprism/auth:${TAG}
+                      command: ["auth", "migrate"]
+                      envFrom:
+                        - secretRef:
+                            name: auth-secret
+                  restartPolicy: Never
+            JOBEOF
+            k3s kubectl wait --namespace prism --for=condition=complete job/auth-migrate-${TAG} --timeout=120s
 
       - name: "deploy::auth"
-        run: |
-          curl -fsSL "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_UUID_AUTH }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}"
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            k3s kubectl set image deployment/auth -n prism auth=ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}
+            k3s kubectl rollout status deployment/auth -n prism --timeout=120s
 
       - name: "notify::success"
         if: success()
