@@ -88,6 +88,22 @@ jobs:
             k3s kubectl set image deployment/auth -n prism auth=ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}
             k3s kubectl rollout status deployment/auth -n prism --timeout=120s
 
+      - name: "grafana::annotate"
+        if: success()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            GRAFANA_IP=$(k3s kubectl get svc grafana -n prism -o jsonpath='{.spec.clusterIP}')
+            GRAFANA_USER=$(k3s kubectl get secret grafana-secret -n prism -o jsonpath='{.data.GF_SECURITY_ADMIN_USER}' | base64 -d)
+            GRAFANA_PASS=$(k3s kubectl get secret grafana-secret -n prism -o jsonpath='{.data.GF_SECURITY_ADMIN_PASSWORD}' | base64 -d)
+            curl -sS -X POST "http://${GRAFANA_IP}:3000/api/annotations" \
+              -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
+              -H "Content-Type: application/json" \
+              -d "{\"text\":\"auth deployed ${{ needs.build.outputs.image_tag }}\",\"tags\":[\"deploy\",\"auth\"]}" || true
+
       - name: "notify::success"
         if: success()
         run: |
