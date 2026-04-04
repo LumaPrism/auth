@@ -74,6 +74,13 @@ jobs:
                       envFrom:
                         - secretRef:
                             name: auth-secret
+                      resources:
+                        requests:
+                          cpu: 100m
+                          memory: 128Mi
+                        limits:
+                          cpu: 250m
+                          memory: 256Mi
                   restartPolicy: Never
             JOBEOF
             k3s kubectl wait --namespace application --for=condition=complete job/auth-migrate-${TAG} --timeout=120s
