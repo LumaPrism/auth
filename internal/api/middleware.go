@@ -21,13 +21,20 @@ import (
 	"github.com/supabase/auth/internal/models"
 	"github.com/supabase/auth/internal/observability"
 	"github.com/supabase/auth/internal/sbff"
-	"github.com/supabase/auth/internal/security"
 	"github.com/supabase/auth/internal/utilities"
 
 	"github.com/didip/tollbooth/v5"
 	"github.com/didip/tollbooth/v5/limiter"
 	jwt "github.com/golang-jwt/jwt/v5"
 )
+
+type captchaRequest struct {
+	Security captchaSecurity `json:"gotrue_meta_security"`
+}
+
+type captchaSecurity struct {
+	Token string `json:"captcha_token"`
+}
 
 type FunctionHooks map[string][]string
 
@@ -217,12 +224,21 @@ func (a *API) verifyCaptcha(w http.ResponseWriter, req *http.Request) (context.C
 		return ctx, nil
 	}
 
-	body := &security.GotrueRequest{}
+	body := &captchaRequest{}
 	if err := retrieveRequestParams(req, body); err != nil {
 		return nil, err
 	}
 
-	verificationResult, err := security.VerifyRequest(body, utilities.GetIPAddress(req), strings.TrimSpace(config.Security.Captcha.Secret), config.Security.Captcha.Provider)
+	token := strings.TrimSpace(body.Security.Token)
+	if token == "" {
+		return nil, apierrors.NewBadRequestError(apierrors.ErrorCodeCaptchaFailed, "captcha protection: request disallowed (no captcha_token found)")
+	}
+
+	verificationResult, err := a.captchaVerifier.Verify(
+		ctx,
+		token,
+		utilities.GetIPAddress(req),
+	)
 	if err != nil {
 		return nil, apierrors.NewInternalServerError("captcha verification process failed").WithInternalError(err)
 	}
@@ -351,6 +367,22 @@ func (a *API) requireManualLinkingEnabled(w http.ResponseWriter, req *http.Reque
 	ctx := req.Context()
 	if !a.config.Security.ManualLinkingEnabled {
 		return nil, apierrors.NewNotFoundError(apierrors.ErrorCodeManualLinkingDisabled, "Manual linking is disabled")
+	}
+	return ctx, nil
+}
+
+func (a *API) requireOAuthServerEnabled(w http.ResponseWriter, req *http.Request) (context.Context, error) {
+	ctx := req.Context()
+	if !a.config.OAuthServer.Enabled {
+		return nil, apierrors.NewNotFoundError(apierrors.ErrorCodeFeatureDisabled, "OAuth server is disabled")
+	}
+	return ctx, nil
+}
+
+func (a *API) requireCustomOAuthEnabled(w http.ResponseWriter, req *http.Request) (context.Context, error) {
+	ctx := req.Context()
+	if !a.config.CustomOAuth.Enabled {
+		return nil, apierrors.NewNotFoundError(apierrors.ErrorCodeFeatureDisabled, "Custom OAuth providers are disabled")
 	}
 	return ctx, nil
 }
