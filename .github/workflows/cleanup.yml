@@ -15,7 +15,7 @@ jobs:
       - uses: snok/container-retention-policy@v3.0.0
         with:
           account: LumaPrism
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GHCR_CLEANUP_TOKEN }}
           image-names: auth
           cut-off: 30 days ago UTC
           keep-n-most-recent: 30
