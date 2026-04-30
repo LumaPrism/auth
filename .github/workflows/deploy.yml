@@ -8,6 +8,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/lumaprism/auth
+  INFRA_REPO: lumaprism/infrastructure
+  KUST_PATH: k8s/overlays/development/kustomization.yaml
 
 jobs:
   build:
@@ -37,90 +39,42 @@ jobs:
           cache-from: type=gha,scope=auth
           cache-to: type=gha,mode=max,scope=auth
 
-  deploy:
-    name: "deploy::k3s::development"
+  bump:
+    name: "bump::infra"
     needs: build
     runs-on: ubuntu-latest
-    environment: development
     steps:
-      - name: "deploy::migrate"
-        uses: appleboy/ssh-action@v1
+      - name: "checkout::infra"
+        uses: actions/checkout@v5
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            TAG="${{ needs.build.outputs.image_tag }}"
-            k3s kubectl delete job -n application -l app=auth-migrate --ignore-not-found
-            cat <<JOBEOF | k3s kubectl apply -f -
-            apiVersion: batch/v1
-            kind: Job
-            metadata:
-              name: auth-migrate-${TAG}
-              namespace: application
-              labels:
-                app: auth-migrate
-            spec:
-              backoffLimit: 3
-              ttlSecondsAfterFinished: 300
-              template:
-                spec:
-                  imagePullSecrets:
-                    - name: ghcr-secret
-                  containers:
-                    - name: auth-migrate
-                      image: ghcr.io/lumaprism/auth:${TAG}
-                      command: ["auth", "migrate"]
-                      envFrom:
-                        - secretRef:
-                            name: auth-secret
-                      resources:
-                        requests:
-                          cpu: 100m
-                          memory: 128Mi
-                        limits:
-                          cpu: 250m
-                          memory: 256Mi
-                  restartPolicy: Never
-            JOBEOF
-            k3s kubectl wait --namespace application --for=condition=complete job/auth-migrate-${TAG} --timeout=120s
+          repository: ${{ env.INFRA_REPO }}
+          token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
+          path: infra
 
-      - name: "deploy::auth"
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            k3s kubectl set image deployment/auth -n application auth=ghcr.io/lumaprism/auth:${{ needs.build.outputs.image_tag }}
-            k3s kubectl rollout status deployment/auth -n application --timeout=120s
-
-      - name: "grafana::annotate"
-        if: success()
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            GRAFANA_IP=$(k3s kubectl get svc grafana -n observability -o jsonpath='{.spec.clusterIP}')
-            GRAFANA_USER=$(k3s kubectl get secret grafana-secret -n observability -o jsonpath='{.data.GF_SECURITY_ADMIN_USER}' | base64 -d)
-            GRAFANA_PASS=$(k3s kubectl get secret grafana-secret -n observability -o jsonpath='{.data.GF_SECURITY_ADMIN_PASSWORD}' | base64 -d)
-            curl -sS -X POST "http://${GRAFANA_IP}:3000/api/annotations" \
-              -u "${GRAFANA_USER}:${GRAFANA_PASS}" \
-              -H "Content-Type: application/json" \
-              -d "{\"text\":\"auth deployed ${{ needs.build.outputs.image_tag }}\",\"tags\":[\"deploy\",\"auth\"]}" || true
-
-      - name: "notify::success"
-        if: success()
+      - name: "install::yq"
         run: |
-          curl -sS -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"Deploy Succeeded\",\"description\":\"**auth** deployed to development\",\"color\":3066993,\"fields\":[{\"name\":\"Tag\",\"value\":\"\`${{ needs.build.outputs.image_tag }}\`\",\"inline\":true},{\"name\":\"Commit\",\"value\":\"[\`${GITHUB_SHA::7}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\",\"inline\":true}]}]}"
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
-      - name: "notify::failure"
-        if: failure()
+      - name: "bump::tag"
+        working-directory: infra
+        env:
+          NEW_TAG: ${{ needs.build.outputs.image_tag }}
         run: |
-          curl -sS -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"embeds\":[{\"title\":\"Deploy Failed\",\"description\":\"**auth** deploy to development failed\",\"color\":15158332,\"fields\":[{\"name\":\"Tag\",\"value\":\"\`${{ needs.build.outputs.image_tag }}\`\",\"inline\":true},{\"name\":\"Run\",\"value\":\"[View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\",\"inline\":true}]}]}"
+          set -euo pipefail
+          OLD_TAG=$(yq '.images[] | select(.name == "ghcr.io/lumaprism/auth").newTag' "$KUST_PATH")
+          if [ "$OLD_TAG" = "$NEW_TAG" ]; then
+            echo "No tag change ($OLD_TAG == $NEW_TAG); skipping commit."
+            exit 0
+          fi
+
+          yq -i "(.images[] | select(.name == \"ghcr.io/lumaprism/auth\")).newTag = \"${NEW_TAG}\"" "$KUST_PATH"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$KUST_PATH"
+          git commit -m "deploy(auth): bump development to ${NEW_TAG}
+
+          Source: ${{ github.repository }}@${{ github.sha }}
+          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git push origin HEAD:main
